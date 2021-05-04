@@ -1,0 +1,60 @@
+name: $(BuildID)
+
+variables:
+  - group: keyvault-image-build-variables
+  - group: packer-image-build-variables
+
+stages:
+- stage: multi_session_hosts
+  displayName: Multi Session Windows 10
+  jobs:
+  - job: build
+    displayName: Build Image
+    pool:
+      vmImage: windows-2019
+    steps:
+    - task: AzurePowerShell@5
+      displayName: 'Sending Warning Message'
+      inputs:
+        azureSubscription: $(ServiceConnection)
+        ScriptType: 'InlineScript'
+        Inline: |
+          $ResourceGroupName = "$(resourceGroup)"
+          $HostPool = "$(HostPoolName)"
+        
+          $WVDUserSessions = Get-AzWvdUserSession -HostPoolName $HostPool -ResourceGroupName $ResourceGroupName
+          $NumberofWVDSessions = ($WVDUserSessions).count
+        
+          if ($NumberofWVDSessions -gt "0") {
+            try {
+                foreach ($WVDUserSession in $WVDUserSessions){
+                    
+                    $InputString = $WVDUserSession.Name
+                    $WVDUserArray = $InputString.Split("/")
+                    $WVDUserArray[0]
+                    $WVDUserArray[1]
+                    $WVDUserArray[2]
+            
+                    Send-AzWvdUserSessionMessage -HostPoolName $HostPool -ResourceGroupName $ResourceGroupName -SessionHostName $WVDUserArray[1] -UserSessionId $WVDUserArray[2] -MessageTitle "Image Update - Warning" -MessageBody "A new image is being applied to your desktop. Save your work now, be prepared to log off or you will automatically be logged off."
+                }
+            }
+            catch {
+                Write-Host "There are no users logged on. No messages will be sent."
+            }
+          }
+        azurePowerShellVersion: 'LatestVersion'
+    - task: PackerBuild@1
+      displayName: 'Build Image'
+      inputs:
+        templateType: custom
+        customTemplateLocation: '$(System.DefaultWorkingDirectory)/hostpools/imagemanagement/packer.json'
+        customTemplateParameters: '{"ADOServicePrincipalAppId":"$(ADOAppID)","ADOServicePrincipalSecret":"$(ADOAppSecret)","TenantId":"$(TenantId)","SubscriptionId":"$(SubscriptionId)","FSLogixSA":"$(FSLogixSA)","FSLogixSAS":"$(FSLogixSAS)","ImageDestRG":"$(ImageDestRG)", "SIGRG":"$(SIGRG)","SIGName":"$(SIGName)","SIGDefName":"$(SIGDefName)","Location":"$(Location)","VMSize":"$(VMSize)","StorageAccountInstallersName":"$(StorageAccountName)","StorageAccountInstallersKey":"$(StorageAccountKey)","StorageAccountInstallersPath":"$(StorageAccountInstallersPath)"}'
+        imageUri: BuildImage
+    - task: nkdagility.variablehydration.variabledehydration-task.variabledehydration@0
+      displayName: 'Save Build Variables: BuildImage'
+      inputs:
+        prefixes: BuildImage
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact: Build Image and associated Template'
+      inputs:
+        ArtifactName: 'Build Image'

@@ -1,0 +1,201 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "artifactsLocation": {
+            "defaultValue": "https://wvdportalstorageblob.blob.core.windows.net/galleryartifacts/Configuration.zip",
+            "type": "string",
+            "metadata": {
+                "description": "The base URI where artifacts required by this template are located."
+            }
+        },
+        "rdshPrefix": {
+            "defaultValue": "[concat(take(toLower(resourceGroup().name),10),'ms')]",
+            "type": "string"
+        },
+        "GalleryRG": {
+            "type": "string"
+        },
+        "GalleryName": {
+            "type": "string"
+        },
+        "galleryImageDefinitionName": {
+            "type": "string"
+        },
+        "galleryImageVersionName": {
+            "type": "string",
+            "defaultValue": "latest"
+        },
+        "rdshNumberOfInstances": {
+            "type": "string"
+        },
+        "rdshVmSize": {
+            "defaultValue": "Standard_F4s_v2",
+            "type": "string"
+        },
+        "domain": {
+            "type": "string"
+        },
+        "administratorUsername": {
+            "type": "string"
+        },
+        "administratorAccountPassword": {
+            "type": "securestring"
+        },
+        "vmInitialNumber": {
+            "defaultValue": 0,
+            "type": "Int",
+            "metadata": {
+                "description": "VM name prefix initial number."
+            }
+        },
+        "vnetRG": {
+            "type": "string"
+        },
+        "WVDVnet": {
+            "type": "string"
+        },
+        "WVDSubnet": {
+            "type": "string"
+        },
+        "hostpoolName": {
+            "type": "string"
+        },
+        "hostpoolToken": {
+            "type": "string"
+        }
+    },
+    "variables": {
+        "AdminUPN": "[concat(parameters('administratorUsername'),'@',parameters('domain'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2018-11-01",
+            "name": "[concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')), '-nic')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[resourceId(parameters('vnetRG'), 'Microsoft.Network/virtualNetworks/subnets', parameters('WVDVnet'), parameters('WVDSubnet'))]"
+                            }
+                        }
+                    }
+                ],
+                "enableAcceleratedNetworking": false
+            },
+            "copy": {
+                "name": "rdsh-nic-loop",
+                "count": "[int(parameters('rdshNumberOfInstances'))]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2018-10-01",
+            "name": "[concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')))]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')), '-nic')]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('rdshVmSize')]"
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')))]",
+                    "adminUsername": "[parameters('administratorUsername')]",
+                    "adminPassword": "[parameters('administratorAccountPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "id": "[resourceId(parameters('GalleryRG'),'Microsoft.Compute/galleries/images/versions', parameters('galleryName'), parameters('galleryImageDefinitionName'), parameters('galleryImageVersionName'))]"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')), '-nic'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": false
+                    }
+                },
+                "licenseType": "Windows_Client"
+            },
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[int(parameters('rdshNumberOfInstances'))]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2018-10-01",
+            "name": "[concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')), '/', 'joindomain')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "rdsh-vm-loop"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "JsonADDomainExtension",
+                "typeHandlerVersion": "1.3",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "name": "[parameters('domain')]",
+                    "ouPath": "",
+                    "user": "[variables('AdminUPN')]",
+                    "restart": "true",
+                    "options": "3"
+                },
+                "protectedSettings": {
+                    "password": "[parameters('administratorAccountPassword')]"
+                }
+            },
+            "copy": {
+                "name": "rdsh-domain-join-loop",
+                "count": "[int(parameters('rdshNumberOfInstances'))]"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2018-10-01",
+            "name": "[concat(parameters('rdshPrefix'), add(copyindex(), parameters('vmInitialNumber')), '/', 'dscextension')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "rdsh-domain-join-loop"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Powershell",
+                "type": "DSC",
+                "typeHandlerVersion": "2.73",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "modulesUrl": "[parameters('artifactsLocation')]",
+                    "configurationFunction": "Configuration.ps1\\AddSessionHost",
+                    "properties": {
+                        "hostPoolName": "[parameters('hostpoolName')]",
+                        "registrationInfoToken": "[parameters('hostpoolToken')]"
+                    }
+                }
+            },
+            "copy": {
+                "name": "rdsh-dsc-loop",
+                "count": "[int(parameters('rdshNumberOfInstances'))]"
+            }
+        }
+    ],
+    "outputs": {}
+}

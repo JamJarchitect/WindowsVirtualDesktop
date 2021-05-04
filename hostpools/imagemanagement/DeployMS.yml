@@ -1,0 +1,164 @@
+variables:
+  - group: keyvault-image-build-variables
+  - group: packer-image-build-variables
+
+jobs:
+  - job: deploy
+    displayName: deploy
+    pool:
+      vmImage: windows-latest
+    steps:
+      - checkout: self
+      - task: AzurePowerShell@5
+        displayName: "Outdated WVD Hosts"
+        inputs:
+          azureSubscription: $(ServiceConnection)
+          ScriptType: "InlineScript"
+          Inline: |
+            $hostpool = "$(HostpoolName)"
+            $resourceGroup = "$(ResourceGroup)"
+            $sigRg = "$(SIGRG)"
+            $sigName = "$(SIGName)"
+            $sigDefName = "$(SigDefName)"
+            $old_hosts = Get-AzWvdSessionHost -HostPoolName $hostpool -ResourceGroup $resourceGroup
+            $old_hostscount = $old_hosts.count
+
+            if ($old_hostscount -gt 0) {
+                Write-Host "Existing Hosts found"
+
+                $old_hosts = Get-AzWvdSessionHost -HostPoolName $hostpool -ResourceGroup $resourcegroup
+
+                $hostcount = ($old_hosts).count
+                $hostcount = [string]$hostcount
+
+                $latestver = (Get-AzGalleryImageVersion -ResourceGroupName $sigRg -GalleryName $sigName -GalleryImageDefinitionName $SigDefName).name  | Sort-Object -Descending
+                $latestver = $latestver[0]
+                $latestver = $latestver.split('.') | select-object -last 1
+
+                $oldlatestver = (Get-AzGalleryImageVersion -ResourceGroupName $sigRg -GalleryName $sigName -GalleryImageDefinitionName $SigDefName).name  | Sort-Object -Descending
+                $oldlatestver = $oldlatestver[1]            
+                $oldlatestver = $oldlatestver.split('.') | select-object -last 1
+
+                Write-Host "Previous image version for Multi-Session is $oldlatestver"
+                Write-Host "Latest image version for Multi-Session is $latestver"
+                Write-Host "$hostcount existing hosts. We will create the same number of hosts."
+
+                Write-Host "##vso[task.setvariable variable=imver]$latestver"
+                Write-Host "##vso[task.setvariable variable=prevver]$oldlatestver"
+                Write-Host "##vso[task.setvariable variable=hostcount]$hostcount"
+                Write-Host "##vso[task.setvariable variable=newhosts]false"
+
+            }
+            else {
+                Write-Host "No hosts found, deploying three new hosts"
+                Write-Host "##vso[task.setvariable variable=newhosts]true"
+
+                $latestver = (Get-AzGalleryImageVersion -ResourceGroupName $sigRg -GalleryName $sigName -GalleryImageDefinitionName $sigDefName).name  | Sort-Object -Descending
+                $latestver = $latestver[0]
+                $latestver = $latestver.split('.') | select-object -last 1
+
+                Write-Host "Latest image version for Multi-Session is $latestver"
+                Write-Host "##vso[task.setvariable variable=imver]$latestver"
+            }
+          azurePowerShellVersion: "LatestVersion"
+      - task: AzureResourceManagerTemplateDeployment@3
+        condition: eq(variables.newhosts, true)
+        displayName: "Building New MS WVD Hosts"
+        inputs:
+          ConnectedServiceName: $(ServiceConnection)
+          subscriptionName: $(SubscriptionId)
+          resourceGroupName: $(ResourceGroup)
+          location: $(Location)
+          csmFile: '**\vm.json'
+          overrideParameters: -rdshPrefix "ms$(imver)-" -GalleryRG "$(SIGRG)" -GalleryName "$(SIGName)" -GalleryImageDefinitionName "$(SIGDefName)" -vnetRG "$(vnetRG)" -rdshNumberOfInstances 3 -domain "$(domain)" -administratorUsername "$(LocalAdmin)" -administratorAccountPassword $(AdminPassword) -WVDVnet "$(WVDVnetName)" -WVDSubnet "$(WVDSubnetName)" -hostpoolName "$(hostpoolName)" -hostpoolToken $(HostpoolKey)
+      - task: AzureResourceManagerTemplateDeployment@3
+        condition: eq(variables.newhosts, false)
+        displayName: "Replace MS WVD Hosts"
+        inputs:
+          ConnectedServiceName: $(ServiceConnection)
+          subscriptionName: $(SubscriptionId)
+          resourceGroupName: $(ResourceGroup)
+          location: $(Location)
+          csmFile: hostpools\\imagemanagement\\vm.json
+          overrideParameters: -rdshPrefix "ms$(imver)-" -GalleryRG "$(SIGRG)" -GalleryName "$(SIGName)" -GalleryImageDefinitionName "$(SIGDefName)" -vnetRG "$(vnetRG)" -rdshNumberOfInstances "$(hostcount)" -domain "$(domain)" -administratorUsername "$(LocalAdmin)" -administratorAccountPassword $(AdminPassword) -WVDVnet "$(WVDVnetName)" -WVDSubnet "$(WVDSubnetName)" -hostpoolName "$(hostpoolName)" -hostpoolToken $(HostpoolKey)
+      - task: AzurePowerShell@5
+        condition: eq(variables.newhosts, false)
+        displayName: "Drain mode old hosts"
+        inputs:
+          azureSubscription: $(ServiceConnection)
+          ScriptType: "InlineScript"
+          Inline: |
+            $resourceGroup = "$(ResourceGroup)"
+            $hostpool = "$(HostpoolName)"
+            $prev = "$(prevver)"
+            $domain = "$(domain)"
+
+            Write-Host "Drain mode outdated WVD Hosts"
+            $old_hosts = Get-AzWvdSessionHost -HostPoolName $hostpool -ResourceGroup $resourceGroup
+            $old_hosts = $old_hosts | Where-Object Name -CLike "*$prev*"
+
+            $old_hosts | ForEach {
+                $name = $_.Name.split('/')[1]
+                Update-AzWvdSessionHost -HostPoolName $hostpool -ResourceGroup $resourcegroup -Name $name -AllowNewSession:$false -Confirm:$false -Verbose
+            }
+
+            $vmnames = $old_hosts.name.trimend(".$domain")
+            $vmnames = $vmnames.trimstart("$hostpool")
+            $vmnames = $vmnames.trimstart([char]0x002F)
+          azurePowerShellVersion: "LatestVersion"
+      - task: AzurePowerShell@5
+        condition: eq(variables.newhosts, false)
+        displayName: "Log users off and stop VMs"
+        inputs:
+          azureSubscription: $(ServiceConnection)
+          ScriptType: "InlineScript"
+          Inline: |
+            Write-Host "Declaring Variables"
+            $resourceGroup = "$(ResourceGroup)"
+            $hostpool = "$(HostpoolName)"
+            $prev = "$(prevver)"
+            $domain = "$(domain)"
+
+            $ResourceGroupName = "$(ResourceGroup)"
+            $HostPool = "$(HostpoolName)"
+
+            $WVDUserSessions = Get-AzWvdUserSession -HostPoolName $HostPool -ResourceGroupName $ResourceGroupName
+            $NumberofWVDSessions = ($WVDUserSessions).count
+
+            Write-Host "Logging Off Users"
+
+            if ($NumberofWVDSessions -gt "0") {
+                try {
+                    Write-Host "There are $NumberofWVDSessions logged on, they now will be logged off"
+
+                    foreach ($WVDUserSession in $WVDUserSessions) {
+                        
+                        $InputString = $WVDUserSession.Name
+                        $WVDUserArray = $InputString.Split("/")
+                        $WVDUserArray[0]
+                        $WVDUserArray[1]
+                        $WVDUserArray[2]
+                
+                        Remove-AzWvdUserSession -HostPoolName $HostPool -ResourceGroupName $ResourceGroupName -SessionHostName $WVDUserArray[1] -Id $WVDUserArray[2]
+                    }
+                }
+                catch {
+                    Write-Host "There 0 users logged on to Windows Virtual Desktop"
+                }
+            }
+            while ($true) { 
+                $NumberofWVDSessions = Get-AzWvdUserSession -HostPoolName $HostPool -ResourceGroupName $ResourceGroupName; $CountNumberofWVDSessions = ($NumberofWVDSessions).count ; if ($CountNumberofWVDSessions -gt "0") { Write-Output "There are still $CountNumberofWVDSessions user(s) on $HostpoolName logged on"; Start-Sleep -s 10 } else { break } 
+            }
+
+            $old_hosts = Get-AzWvdSessionHost -HostPoolName $hostpool -ResourceGroup $resourceGroup
+            $old_hosts = $old_hosts | Where-Object Name -CLike "*$prev*"
+
+            $vmnames = $old_hosts.name.trimend(".$domain")
+            $vmnames = $vmnames.trimstart("$hostpool")
+            $vmnames = $vmnames.trimstart([char]0x002F)
+
+            Write-Host "Stopping outdated WVD Host VMs"
+            ForEach ($vmname in $vmnames) {
+              Stop-AzVM -name $vmname -ResourceGroupName $resourceGroup -Force -Verbose
+            }
+          azurePowerShellVersion: "LatestVersion"
