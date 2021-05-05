@@ -54,8 +54,16 @@ jobs:
                 Write-Host "##vso[task.setvariable variable=newhosts]true"
 
                 $latestver = (Get-AzGalleryImageVersion -ResourceGroupName $sigRg -GalleryName $sigName -GalleryImageDefinitionName $sigDefName).name  | Sort-Object -Descending
-                $latestver = $latestver[0]
-                $latestver = $latestver.split('.') | select-object -last 1
+                if ($latestver.gettype().name -eq "String") {
+                  $latestver = $latestver.split('.') | select-object -last 1
+                  }
+                elseif ($latestver.gettype().name -eq "Object[]") {
+                  $latestver = $latestver[0]
+                  $latestver = $latestver.split('.') | select-object -last 1
+                }
+                else {
+                  Write-Host "Something went wrong, admin..." 
+                }
 
                 Write-Host "Latest image version for Multi-Session is $latestver"
                 Write-Host "##vso[task.setvariable variable=imver]$latestver"
