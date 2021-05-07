@@ -187,4 +187,5 @@ The triggers need to be changed to the following:
 
 ![A](Images/P12.png)
 
-The Packer pipeline should be run first, this will create the first image version under the pre-created defintion in the shared image gallery. Once done, the Session Host pipeline should then trigger off the completion of the packer pipeline. This will deploy the session hosts.
+The Packer pipeline should be run first, this will create the first image version under the pre-created defintion in the shared image gallery. Once done, the Session Host pipeline should then trigger off the completion of the packer pipeline. This will deploy the session hosts to the host pool.
+
