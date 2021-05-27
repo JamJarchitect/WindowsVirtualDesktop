@@ -22,10 +22,10 @@
             }
         },
         "shareName": {
-            "type": "String",
             "metadata": {
                 "definition": "The name of the share which will host the script files"
-            }
+            },
+            "type": "String"
         },
         "vNetRGName": {
             "type": "string",
