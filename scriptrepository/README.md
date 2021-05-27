@@ -1,7 +1,7 @@
 # Script Repository
 
-Automation is at the key of every businesses objective. The less human interaction with an environment, the better. However not every environment requires the same set up, which is where modular scripts can have an impact. 
+Deploying this creates a script repository in a Windows Virtual Desktop environment with optional Azure Private Link. 
 
 # Purpose
 
-The purpose of this is to have one central location where scripts can reside
+The purpose of this is to have one central location where scripts can reside for automation on Windows Virtual Desktop Session Hosts.
