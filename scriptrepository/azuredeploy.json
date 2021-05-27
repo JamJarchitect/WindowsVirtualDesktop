@@ -4,45 +4,45 @@
     "parameters": {
         "usePrivateLink": {
             "type": "string",
-            "metadata": {
-                "definition": "Private Link to be used for the script repository"
-            },
             "allowedValues": [
                 "true",
                 "false"
             ],
-            "defaultValue": "true"
+            "defaultValue": "true",
+            "metadata": {
+                "description": "Whether Private Link to be used for the script repository"
+            }
         },
         "repoName": {
             "minLength": 3,
             "maxLength": 12,
             "type": "String",
             "metadata": {
-                "definition": "The name being given to the storage account that will be hosting the repository"
+                "description": "The name being given to the storage account that will be hosting the repository"
             }
         },
         "shareName": {
+            "type": "String",
             "metadata": {
-                "definition": "The name of the share which will host the script files"
-            },
-            "type": "String"
+                "description": "The name of the share which will host the script files"
+            }
         },
         "virtualNetworkResourceGroupName": {
             "type": "string",
             "metadata": {
-                "definition": "The Resource Group Name containing the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
+                "description": "The Resource Group Name containing the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
             }
         },
         "virtualNetworkName": {
             "type": "string",
             "metadata": {
-                "definition": "The name of the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
+                "description": "The name of the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
             }
         },
         "virtualNetworkSubnetName": {
             "type": "string",
             "metadata": {
-                "definition": "The Subnet which the Private Endpoint for the Script Repository will reside on"
+                "description": "The Subnet which the Private Endpoint for the Script Repository will reside on"
             }
         }
     },
