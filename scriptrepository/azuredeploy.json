@@ -18,7 +18,7 @@
             "maxLength": 12,
             "type": "String",
             "metadata": {
-                "description": "The name being given to the storage account that will be hosting the repository"
+                "definition": "The name being given to the storage account that will be hosting the repository"
             }
         },
         "shareName": {
@@ -27,19 +27,19 @@
                 "definition": "The name of the share which will host the script files"
             }
         },
-        "VnetRGName": {
+        "vNetRGName": {
             "type": "string",
             "metadata": {
                 "definition": "The Resource Group Name containing the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
             }
         },
-        "VNetName": {
+        "vNetName": {
             "type": "string",
             "metadata": {
                 "definition": "The name of the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
             }
         },
-        "VNetSubnetName": {
+        "vNetSubnetName": {
             "type": "string",
             "metadata": {
                 "definition": "The Subnet which the Private Endpoint for the Script Repository will reside on"
@@ -91,7 +91,7 @@
             ],
             "properties": {
                 "subnet": {
-                    "id": "[resourceId(parameters('VnetRGName'),'Microsoft.Network/virtualNetworks/subnets', parameters('VNetName'), parameters('VNetSubnetName'))]"
+                    "id": "[resourceId(parameters('vNetRGName'),'Microsoft.Network/virtualNetworks/subnets', parameters('vNetName'), parameters('vNetSubnetName'))]"
                 },
                 "privateLinkServiceConnections": [
                     {
