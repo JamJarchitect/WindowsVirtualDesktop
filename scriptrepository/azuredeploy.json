@@ -24,7 +24,7 @@
         "shareName": {
             "type": "String",
             "metadata": {
-                "description": "The name of the share which will host the script files"
+                "description": "123"
             }
         },
         "virtualNetworkResourceGroupName": {
