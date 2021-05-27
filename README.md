@@ -8,3 +8,4 @@ All my Windows Virtual Desktop content ends up here.
 
 - [Automatic Image Management in Host Pool](hostpools/imagemanagement)
 - [Force log off all users in Host Pool](hostpools/forcelog)
+- [Script repository](scriptrepository)

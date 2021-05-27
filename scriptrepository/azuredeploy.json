@@ -1,0 +1,130 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "usePrivateLink": {
+            "type": "string",
+            "metadata": {
+                "definition": "Private Link to be used for the script repository"
+            },
+            "allowedValues": [
+                "true",
+                "false"
+            ],
+            "defaultValue": "true"
+        },
+        "repoName": {
+            "minLength": 3,
+            "maxLength": 12,
+            "type": "String",
+            "metadata": {
+                "description": "The name being given to the storage account that will be hosting the repository"
+            }
+        },
+        "shareName": {
+            "type": "String",
+            "metadata": {
+                "definition": "The name of the share which will host the script files"
+            }
+        },
+        "VnetRGName": {
+            "type": "string",
+            "metadata": {
+                "definition": "The Resource Group Name containing the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
+            }
+        },
+        "VNetName": {
+            "type": "string",
+            "metadata": {
+                "definition": "The name of the Virtual Network that is hosting the Windows Virtual Desktop Session Hosts"
+            }
+        },
+        "VNetSubnetName": {
+            "type": "string",
+            "metadata": {
+                "definition": "The Subnet which the Private Endpoint for the Script Repository will reside on"
+            }
+        }
+    },
+    "variables": {
+        "repoPEName": "[concat(parameters('repoName'),'pe')]",
+        "fileStorageAccountPrivateEndpointId": "[resourceId('Microsoft.Network/privateEndpoints', variables('repoPEName'))]",
+        "filePublicDNSZoneForwarder": "[concat('.file.', environment().suffixes.storage)]",
+        "filePrivateDnsZoneName": "[concat('privatelink', variables('filePublicDNSZoneForwarder'))]",
+        "filePrivateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('filePrivateDnsZoneName'))]",
+        "fileStorageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('repoName'))]",
+        "filePrivateDnsZoneGroup": "[concat(variables('repoPEName'), '/PrivateDnsZoneGroup')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2021-01-01",
+            "name": "[parameters('repoName')]",
+            "location": "[resourceGroup().location]",
+            "sku": {
+                "name": "Premium_LRS"
+            },
+            "kind": "FileStorage"
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+            "apiVersion": "2021-01-01",
+            "name": "[concat(parameters('repoName'), '/default/', parameters('shareName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('repoName'))]"
+            ],
+            "properties": {
+                "accessTier": "Premium",
+                "shareQuota": 100,
+                "enabledProtocols": "SMB"
+            }
+        },
+        {
+            "condition": "[equals(parameters('usePrivateLink'), 'true')]",
+            "type": "Microsoft.Network/privateEndpoints",
+            "apiVersion": "2020-11-01",
+            "name": "[variables('RepoPEName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('repoName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('repoName'), 'default', parameters('shareName'))]"
+            ],
+            "properties": {
+                "subnet": {
+                    "id": "[resourceId(parameters('VnetRGName'),'Microsoft.Network/virtualNetworks/subnets', parameters('VNetName'), parameters('VNetSubnetName'))]"
+                },
+                "privateLinkServiceConnections": [
+                    {
+                        "name": "[variables('repoPEName')]",
+                        "properties": {
+                            "groupIds": [
+                                "file"
+                            ],
+                            "privateLinkServiceId": "[variables('fileStorageAccountId')]"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "condition": "[equals(parameters('usePrivateLink'), 'true')]",
+            "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+            "apiVersion": "2020-07-01",
+            "name": "[variables('filePrivateDnsZoneGroup')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[variables('fileStorageAccountPrivateEndpointId')]"
+            ],
+            "properties": {
+                "privateDnsZoneConfigs": [
+                    {
+                        "name": "dnsConfig",
+                        "properties": {
+                            "privateDnsZoneId": "[variables('filePrivateDnsZoneId')]"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
