@@ -7,7 +7,12 @@ param (
     # Resource Group where your WVD resources reside
     [Parameter(mandatory = $true)]
     [string]
-    $ResourceGroupName,
+    $VMResourceGroupName,
+
+    # Resource Group where your WVD resources reside
+    [Parameter(mandatory = $true)]
+    [string]
+    $HostPoolResourceGroupName,
 
     # Host Pool to attribute optimization to
     [Parameter(mandatory = $true)]
@@ -22,7 +27,7 @@ function OptimizeVMs {
 
     # Get the session hosts to optimize
     Write-Host "Getting the WVD Session Hosts"
-    $SessionHosts = Get-AzWvdSessionHost -ResourceGroupName $ResourceGroupName -HostPoolName $HostPoolName
+    $SessionHosts = Get-AzWvdSessionHost -ResourceGroupName $HostPoolResourceGroupName -HostPoolName $HostPoolName
 
     $vmnames = $SessionHosts.name.trimend(".$domain")
     $vmnames = $vmnames.trimstart("$HostPoolName")
@@ -30,10 +35,10 @@ function OptimizeVMs {
 
     Write-Host "Changing SKU of disks for session hosts"
     foreach ($vmname in $vmnames) {
-        Stop-AzVM -Name $vmname -ResourceGroupName $ResourceGroupName -Force -Verbose
-        $disk = Get-AzDisk -ResourceGroupName $ResourceGroupName -DiskName $vmname*
+        Stop-AzVM -Name $vmname -ResourceGroupName $VMResourceGroupName -Force -Verbose
+        $disk = Get-AzDisk -ResourceGroupName $VMResourceGroupName -DiskName $vmname*
         $disk.Sku = [Microsoft.Azure.Management.Compute.Models.DiskSku]::new($storageType)
-		$disk | Update-AzDisk -Verbose
+        $disk | Update-AzDisk -Verbose
 
         Write-Host "Optimization of $vmname DONE"
     }
@@ -44,7 +49,7 @@ function InitializeVMs {
 
     # Get the session hosts to optimize
     Write-Host "Getting the WVD Session Hosts"
-    $SessionHosts = Get-AzWvdSessionHost -ResourceGroupName $ResourceGroupName -HostPoolName $HostPoolName
+    $SessionHosts = Get-AzWvdSessionHost -ResourceGroupName $HostPoolResourceGroupName -HostPoolName $HostPoolName
 
     $vmnames = $SessionHosts.name.trimend(".$domain")
     $vmnames = $vmnames.trimstart("$HostPoolName")
@@ -52,13 +57,20 @@ function InitializeVMs {
 
     foreach ($vmname in $vmnames) {
         Write-Host "Changing $vmname disk SKUs"
-        $disk = Get-AzDisk -ResourceGroupName $ResourceGroupName -DiskName $vmname*
+        $disk = Get-AzDisk -ResourceGroupName $VMResourceGroupName -DiskName $vmname*
         $disk.Sku = [Microsoft.Azure.Management.Compute.Models.DiskSku]::new($storageType)
-		$disk | Update-AzDisk -Verbose
+        $disk | Update-AzDisk -Verbose
 
         Write-Host "Starting $vmname"
-        Start-AzVM -Name $vmname -ResourceGroupName $ResourceGroupName -Verbose
+        Start-AzVM -Name $vmname -ResourceGroupName $VMResourceGroupName -Verbose
 
         Write-Host "$vmname Started"
     }
 }
+
+OptimizeVMs
+
+
+Start-Sleep -Seconds 30
+
+InitializeVMs
